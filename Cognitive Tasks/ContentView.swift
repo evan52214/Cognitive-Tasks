@@ -1,11 +1,12 @@
-// Cognitive Task Version 2.0.3
+// Cognitive Task Version 2.1 beta 2
 
 import SwiftUI
 
-var isDeveloping: Bool = false
+var isDeveloping: Bool = true
+let simonIncrement = 2
 
 let stroopTestDuration = isDeveloping ? 5 : 60
-let simonTestDuration = isDeveloping ? 5 : 180
+let simonTestDuration = isDeveloping ? 10 : 180
 let restDuration = isDeveloping ? 3 : 10
 
 // MARK: - Test Types and Results Structures
@@ -129,11 +130,12 @@ struct TestSelectionView: View {
                 .font(.title2)
                 .padding(.top, 20)
             Button(action: {
-                }) {
+                onSelection(.entire)
+            }) {
                 Text("Start Entire Test")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.gray)
+                    .background(Color.green)
                     .foregroundColor(.white)
                     .cornerRadius(15)
             }
@@ -608,7 +610,7 @@ struct SimonTestForEntire: View {
     @State private var gameState: GameState = .start
     @State private var sequence: [Int] = []
     @State private var currentInput: [Int] = []
-    @State private var currentLevel: Int = 5  // Start at level 5
+    @State private var currentLevel: Int = 1  // Start at level 1
     @State private var errorCount: Int = 0
     @State private var message: String = ""
     @State private var showingSequence: Bool = false
@@ -667,7 +669,7 @@ struct SimonTestForEntire: View {
                         .onAppear {
                             if !finished {
                                 finished = true
-                                onFinish(SimonResults(finalLevel: currentLevel, errors: errorCount))
+                                onFinish(SimonResults(finalLevel: currentLevel - 1, errors: errorCount))
                             }
                         }
                 }
@@ -713,13 +715,14 @@ struct SimonTestForEntire: View {
         message = "Preparing..."
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             isGettingReady = false
-            Task { await nextLevel() }
+            // Instead of calling nextLevel(), show the starting sequence:
+            Task { await playSequence(isNewLevel: true) }
         }
     }
     
     func resetGame() {
         sequence = []
-        for _ in 1...4 {
+        for _ in 1...simonIncrement {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -729,7 +732,7 @@ struct SimonTestForEntire: View {
             sequence.append(newButton)
         }
         currentInput = []
-        currentLevel = 4
+        currentLevel = 1
         errorCount = 0
         message = ""
         remainingTime = simonTestDuration
@@ -740,15 +743,18 @@ struct SimonTestForEntire: View {
     }
     
     func nextLevel() async {
-        currentLevel += 1
+        currentLevel += 1 // Increase level number (e.g., 2, 3, 4...)
         currentInput = []
-        var newButton: Int
-        repeat {
-            newButton = Int.random(in: 0...3)
-        } while (sequence.count >= 2 &&
-                 sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
-                 newButton == sequence.last)
-        sequence.append(newButton)
+        // Append 2 new buttons to the sequence for each new level
+        for _ in 1...simonIncrement {
+            var newButton: Int
+            repeat {
+                newButton = Int.random(in: 0...3)
+            } while (sequence.count >= 2 &&
+                     sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
+                     newButton == sequence.last)
+            sequence.append(newButton)
+        }
         await playSequence(isNewLevel: true)
     }
     
@@ -950,7 +956,7 @@ struct SimonSaysGameView: View {
                         Text("Test Over")
                             .font(.largeTitle)
                         
-                        Text("Final Level: \(currentLevel)")
+                        Text("Final Level: \(currentLevel - 1)")
                         
                         Text("Total Errors: \(errorCount)")
                         Button(action: onQuit) {
@@ -1005,6 +1011,7 @@ struct SimonSaysGameView: View {
         isGettingReady = true
         showingSequence = true
         message = "Preparing..."
+        // Instead of calling nextLevel(), show the starting sequence:
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             isGettingReady = false
             Task { await playSequence(isNewLevel: true) }
@@ -1014,7 +1021,7 @@ struct SimonSaysGameView: View {
     func resetGame() {
         sequence = []
         // Start with a sequence length of 2 for level 1
-        for _ in 1...2 {
+        for _ in 1...simonIncrement {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1038,7 +1045,7 @@ struct SimonSaysGameView: View {
         currentLevel += 1  // Increase level number (e.g., 2, 3, 4...)
         currentInput = []
         // Append 2 new buttons to the sequence for each new level
-        for _ in 1...2 {
+        for _ in 1...simonIncrement {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1111,19 +1118,4 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
