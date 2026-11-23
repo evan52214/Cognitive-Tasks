@@ -39,56 +39,94 @@ struct TestSelectionView: View {
     var onSelection: (TestType) -> Void
     
     var body: some View {
-        VStack(spacing: 40) {
+        VStack {
+            Spacer(minLength: 50)
+            
             Text("Select a Test")
                 .font(.largeTitle)
-            HStack(spacing: 40) {
+                .bold()
+                .padding(.bottom, 40)
+            
+            HStack(spacing: 30) { // Horizontal layout for buttons
+                // Stroop Test Button
                 Button(action: { onSelection(.stroop) }) {
                     VStack {
-                        Text("Stroop Test")
-                            .padding()
-                        Image(systemName: "a.circle") // Placeholder icon
+                        Image(systemName: "brain.head.profile")
                             .resizable()
-                            .frame(width: 150, height: 150)
+                            .scaledToFit()
+                            .frame(width: 50, height: 50)
+                            .foregroundColor(.white)
+                        
+                        Text("Stroop Test")
+                            .font(.title2)
+                            .bold()
+                            .foregroundColor(.white)
                     }
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange.opacity(0.3))
-                    .cornerRadius(20)
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.orange, Color.yellow]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .cornerRadius(25)
+                    .shadow(radius: 5)
                 }
-                .contentShape(Rectangle())
+                
+                // Simon Says Button
                 Button(action: { onSelection(.simon) }) {
                     VStack {
-                        Text("Simon Says")
-                            .padding()
-                        Image(systemName: "square.fill") // Placeholder icon
+                        Image(systemName: "hand.tap.fill")
                             .resizable()
-                            .frame(width: 150, height: 150)
+                            .scaledToFit()
+                            .frame(width: 50, height: 50)
+                            .foregroundColor(.white)
+                        
+                        Text("Simon Says")
+                            .font(.title2)
+                            .bold()
+                            .foregroundColor(.white)
                     }
-                    .frame(maxWidth: .infinity)
-                    .background(Color.blue.opacity(0.3))
-                    .cornerRadius(20)
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue, Color.purple]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .cornerRadius(25)
+                    .shadow(radius: 5)
                 }
-                .contentShape(Rectangle())
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 40)
+            
+            Spacer()
         }
         .padding()
     }
 }
 
-
 // MARK: - Simon Says Game View
 
 struct SimonSaysGameView: View {
+    // Game State Variables
     @State private var gameState: GameState = .start
     @State private var sequence: [Int] = []
     @State private var currentInput: [Int] = []
-    @State private var currentLevel: Int = 0
+    @State private var currentLevel: Int = 5  // Start at level 5
     @State private var errorCount: Int = 0
     @State private var message: String = ""
     @State private var showingSequence: Bool = false
     @State private var currentFlashingButton: Int? = nil
     @State private var isGettingReady: Bool = false
+    @State private var inputDisabled: Bool = false
     
+    // Timer Variables
     @State private var remainingTime: Int = 180  // 3 minutes
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
@@ -98,10 +136,13 @@ struct SimonSaysGameView: View {
         VStack {
             switch gameState {
             case .start:
-                // Revised start screen: full-width button is tappable.
+                // Start screen for Simon game.
                 VStack(spacing: 40) {
                     Text("Simon Says")
                         .font(.largeTitle)
+                    Text("Get ready to test your memory and reaction speed. When you’re ready, press the button below to start the game.")
+                        .multilineTextAlignment(.center)
+                        .padding()
                     Button(action: {
                         startGame()
                     }) {
@@ -112,8 +153,10 @@ struct SimonSaysGameView: View {
                             .foregroundColor(.white)
                             .cornerRadius(15)
                     }
+                    .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
                 }
+                
             case .playing:
                 SimonGameView(
                     currentLevel: currentLevel,
@@ -123,7 +166,8 @@ struct SimonSaysGameView: View {
                     showingSequence: showingSequence,
                     currentFlashingButton: currentFlashingButton,
                     handleUserTap: handleUserTap,
-                    onQuit: { onQuit() }
+                    onQuit: { onQuit() },
+                    isPreparing: isGettingReady
                 )
                 .onReceive(timer) { _ in
                     if !isGettingReady && remainingTime > 0 {
@@ -148,7 +192,7 @@ struct SimonSaysGameView: View {
         gameState = .playing
         isGettingReady = true
         showingSequence = true
-        message = "Get Ready..."
+        message = "Preparing..."
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             isGettingReady = false
             Task { await nextLevel() }
@@ -156,30 +200,47 @@ struct SimonSaysGameView: View {
     }
     
     func resetGame() {
+        // Create an initial sequence of 4 buttons allowing two in a row, but not three.
         sequence = []
+        for _ in 1...4 {
+            var newButton: Int
+            repeat {
+                newButton = Int.random(in: 0...3)
+            } while (sequence.count >= 2 &&
+                     sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
+                     newButton == sequence.last)
+            sequence.append(newButton)
+        }
         currentInput = []
-        currentLevel = 0
+        currentLevel = 4  // Change this value to 6, 7, etc. if desired.
         errorCount = 0
         message = ""
         remainingTime = 180
         showingSequence = false
         currentFlashingButton = nil
         isGettingReady = false
+        inputDisabled = false
     }
     
-    // Using async/await to guarantee even timing for each flash.
     func nextLevel() async {
         currentLevel += 1
         currentInput = []
-        sequence.append(Int.random(in: 0...3))
+        // Append a new button allowing a double repetition, but not three in a row.
+        var newButton: Int
+        repeat {
+            newButton = Int.random(in: 0...3)
+        } while (sequence.count >= 2 &&
+                 sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
+                 newButton == sequence.last)
+        sequence.append(newButton)
         await playSequence()
     }
     
     func playSequence() async {
         showingSequence = true
         message = "Watch the sequence..."
-        let flashDuration: UInt64 = 200_000_000  // 0.2 sec in nanoseconds
-        let pauseDuration: UInt64 = 300_000_000  // 0.3 sec in nanoseconds
+        let flashDuration: UInt64 = 200_000_000  // 0.2 sec
+        let pauseDuration: UInt64 = 300_000_000  // 0.3 sec
         for button in sequence {
             withAnimation(.easeInOut(duration: 0.2)) {
                 currentFlashingButton = button
@@ -192,16 +253,18 @@ struct SimonSaysGameView: View {
         }
         showingSequence = false
         message = "Repeat the sequence!"
+        inputDisabled = false
     }
     
     func handleUserTap(_ buttonIndex: Int) {
-        guard !showingSequence && !isGettingReady && gameState == .playing else { return }
+        guard !inputDisabled, !showingSequence, !isGettingReady, gameState == .playing else { return }
         currentInput.append(buttonIndex)
         let currentIndex = currentInput.count - 1
         if currentInput[currentIndex] != sequence[currentIndex] {
             errorCount += 1
             message = "Wrong! Try again at level \(currentLevel)"
             currentInput = []
+            inputDisabled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 Task { await playSequence() }
             }
@@ -209,6 +272,7 @@ struct SimonSaysGameView: View {
         }
         if currentInput.count == sequence.count {
             message = "Correct! Next level..."
+            inputDisabled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 Task { await nextLevel() }
             }
@@ -230,17 +294,23 @@ struct SimonGameView: View {
     var currentFlashingButton: Int?
     var handleUserTap: (Int) -> Void
     var onQuit: () -> Void
+    var isPreparing: Bool
     
     var body: some View {
         VStack(spacing: 30) {
             HStack {
                 Text("Time: \(remainingTime)s")
                 Spacer()
-                Text("Level: \(currentLevel)")
-                Spacer()
                 Text("Errors: \(errorCount)")
             }
             .padding(.horizontal)
+            
+            // Display either "Preparing..." or the current level prominently.
+            Text(isPreparing ? "Get ready..." : "Level \(currentLevel)")
+                .font(.system(size: 48, weight: .bold))
+                .foregroundColor(isPreparing ? .gray : .primary)
+                .padding(.vertical)
+            
             HStack {
                 Text(message)
                     .foregroundColor(.red)
@@ -313,14 +383,17 @@ struct StroopTestContainerView: View {
                 Text("Prepare to test your attention and interference control. When ready, press the button below to start the 1‑minute test.")
                     .multilineTextAlignment(.center)
                     .padding()
-                Button("Start Test") {
+                Button(action: {
                     testStarted = true
+                }) {
+                    Text("Start Test")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(15)
                 }
-                .padding()
                 .frame(maxWidth: .infinity)
-                .background(Color.orange)
-                .foregroundColor(.white)
-                .cornerRadius(15)
                 .contentShape(Rectangle())
             }
             .padding()
@@ -374,7 +447,6 @@ struct StroopTestView: View {
                     .foregroundColor(currentFontColor)
                     .cornerRadius(20)
                     .padding()
-                // Use neutral buttons: uniform background and black text.
                 VStack {
                     HStack(spacing: 20) {
                         ForEach(colorWords.prefix(3), id: \.self) { word in
@@ -442,16 +514,13 @@ struct StroopTestView: View {
     
     func nextStroopTrial() {
         let word = colorWords.randomElement()!
-        let fontColor = colors[colorWords.randomElement()!]!
+        // Ensure the font color is not the same as the word.
+        let possibleColors = colorWords.filter { $0 != word }
+        let fontColorName = possibleColors.randomElement()!
+        let fontColor = colors[fontColorName]!
         currentWord = word
         currentFontColor = fontColor
-        // Determine correct answer based on font color.
-        for (key, value) in colors {
-            if value == fontColor {
-                correctAnswer = key
-                break
-            }
-        }
+        correctAnswer = fontColorName
         startTime = Date()
     }
     
@@ -468,7 +537,9 @@ struct StroopTestView: View {
     }
     
     func averageResponseTime() -> Double {
-        if correctAnswerTimes.isEmpty { return 0.0 }
+        if correctAnswerTimes.isEmpty {
+            return 0.0
+        }
         return correctAnswerTimes.reduce(0, +) / Double(correctAnswerTimes.count)
     }
 }
@@ -526,15 +597,9 @@ struct GameOverView: View {
     }
 }
 
-
-
-
-
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
     }
 }
-
-
 
