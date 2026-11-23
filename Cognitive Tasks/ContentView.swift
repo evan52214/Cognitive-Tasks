@@ -1,4 +1,4 @@
-// Cognitive Task Version 2.1 beta 5
+// Cognitive Task Version 2.1 beta 6
 
 import SwiftUI
 
@@ -8,6 +8,7 @@ let simonIncrement = 2
 let stroopTestDuration = isDeveloping ? 5 : 60
 let simonTestDuration = isDeveloping ? 10 : 180
 let restDuration = isDeveloping ? 3 : 10
+let differentMusicRestDuration = isDeveloping ? 5 : 60
 
 // MARK: - Test Types and Results Structures
 
@@ -249,7 +250,6 @@ struct ContentView: View {
     }
 }
 
-
 // MARK: - Test Selection Screen
 
 struct TestSelectionView: View {
@@ -339,48 +339,92 @@ struct TestSelectionView: View {
     }
 }
 
-// MARK: - Entire Test View
+// MARK: - Entire Test View (Modified for Four Music Periods)
 
 struct EntireTestView: View {
     var onQuit: () -> Void
     
-    enum EntireTestStage {
-        case stroop, rest, simon, results
+    // New phases for the entire test
+    enum EntireTestPhase {
+        case setStroop, restBeforeSimon, setSimon, breakBetweenSets, results
     }
     
-    @State private var stage: EntireTestStage = .stroop
-    @State private var stroopResults: StroopResults? = nil
-    @State private var simonResults: SimonResults? = nil
-    @State private var restCountdown: Int = 10
-    let restTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    // Four music periods in order
+    let musicPeriods = ["No Music", "Baroque", "Classical", "Romantic"]
+    
+    @State private var currentSetIndex: Int = 0
+    @State private var phase: EntireTestPhase = .setStroop
+    
+    // Arrays to store results for each set
+    @State private var stroopResultsSet: [StroopResults] = []
+    @State private var simonResultsSet: [SimonResults] = []
+    
+    // Countdown timers for rest periods
+    @State private var restCountdown: Int = restDuration      // Rest between Stroop and Simon (10 sec)
+    @State private var breakCountdown: Int = differentMusicRestDuration               // Break between sets (1 minute)
+    
+    // A timer publisher for the rest/break phases
+    let phaseTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    // Share sheet state
+    @State private var isShareSheetPresented: Bool = false
+    
+    // Computed property for share content string
+    var shareContent: String {
+        var content = "Entire Test Results\n\n"
+        for i in 0..<musicPeriods.count {
+            content += "Music Period: \(musicPeriods[i])\n"
+            if i < stroopResultsSet.count {
+                let s = stroopResultsSet[i]
+                content += "Stroop Test Results:\n"
+                content += "Score: \(s.score), Errors: \(s.errors), Avg Response Time: \(String(format: "%.2f", s.averageResponseTime)) sec, Response Time Std Dev: \(String(format: "%.2f", s.standardDeviationResponseTime)) sec\n"
+            }
+            if i < simonResultsSet.count {
+                let simon = simonResultsSet[i]
+                content += "Simon Says Results:\n"
+                content += "Final Level: \(simon.finalLevel), Errors: \(simon.errors), Avg Tap Time: \(String(format: "%.2f", simon.averageTapTime)) sec, Tap Time Std Dev: \(String(format: "%.2f", simon.standardDeviationTapTime)) sec, Avg Level Time: \(String(format: "%.2f", simon.averageLevelTime)) sec, Level Time Std Dev: \(String(format: "%.2f", simon.standardDeviationLevelTime)) sec\n"
+            }
+            content += "\n"
+        }
+        return content
+    }
+    
+    // Top label: shows next music period during break; otherwise shows current music period.
+    var topText: String {
+        if phase == .breakBetweenSets, currentSetIndex < musicPeriods.count - 1 {
+            return "Next Music Period: \(musicPeriods[currentSetIndex + 1])"
+        } else {
+            return "Music Period: \(musicPeriods[currentSetIndex])"
+        }
+    }
     
     var body: some View {
         VStack {
-            switch stage {
-            case .stroop:
-                // Run the Stroop test without showing its own results.
+            // Top label changes based on phase.
+            Text(topText)
+                .font(.title)
+                .padding()
+            
+            switch phase {
+            case .setStroop:
+                // Run Stroop test for the current set.
                 StroopTestForEntire(onFinish: { results in
-                    stroopResults = results
-                    stage = .rest
+                    stroopResultsSet.append(results)
+                    phase = .restBeforeSimon
                 }, onQuit: onQuit)
                 
-            case .rest:
+            case .restBeforeSimon:
+                // 10-second rest before Simon Says test.
                 VStack {
-                    Text("")
-                    Spacer() // Make sure "rest" and the countdown are centered
-                    
+                    Spacer()
                     VStack(spacing: 20) {
                         Text("Rest")
                             .font(.system(size: 64, weight: .bold))
-                            .foregroundColor(.primary)
                         Text("Get ready for Simon Says in \(restCountdown) seconds")
                             .font(.title)
-                            .foregroundColor(.secondary)
                     }
                     .padding()
-                    
-                    Spacer()  // This pushes the Quit button to the bottom
-                    
+                    Spacer()
                     Button("Quit") {
                         onQuit()
                     }
@@ -389,112 +433,156 @@ struct EntireTestView: View {
                     .cornerRadius(10)
                     .foregroundColor(.white)
                 }
-                .onAppear {
-                    restCountdown = restDuration // Reset countdown when this stage appears.
-                }
-                .onReceive(restTimer) { _ in
-                    if restCountdown > 0 {
-                        restCountdown -= 1
-                    }
-                    if restCountdown == 0 {
-                        stage = .simon
-                    }
+                .onAppear { restCountdown = restDuration }
+                .onReceive(phaseTimer) { _ in
+                    if restCountdown > 0 { restCountdown -= 1 }
+                    if restCountdown == 0 { phase = .setSimon }
                 }
                 
-            case .simon:
+            case .setSimon:
+                // Run Simon Says test for the current set.
+                // After finishing, if not final set, go to breakBetweenSets;
+                // if final set, go directly to results.
                 SimonTestForEntire(onFinish: { results in
-                    simonResults = results
-                    stage = .results
+                    simonResultsSet.append(results)
+                    if currentSetIndex < musicPeriods.count - 1 {
+                        phase = .breakBetweenSets
+                    } else {
+                        phase = .results
+                    }
                 }, onQuit: onQuit)
                 
+            case .breakBetweenSets:
+                // 1-minute break before the next music period.
+                VStack {
+                    Spacer()
+                    VStack(spacing: 20) {
+                        Text("Break")
+                            .font(.system(size: 64, weight: .bold))
+                        Text("Prepare for next music period in \(breakCountdown) seconds")
+                            .font(.title)
+                    }
+                    .padding()
+                    Spacer()
+                    Button("Quit") {
+                        onQuit()
+                    }
+                    .padding()
+                    .background(Color.red)
+                    .cornerRadius(10)
+                    .foregroundColor(.white)
+                }
+                .onAppear { breakCountdown = differentMusicRestDuration }
+                .onReceive(phaseTimer) { _ in
+                    if breakCountdown > 0 { breakCountdown -= 1 }
+                    if breakCountdown == 0 {
+                        currentSetIndex += 1
+                        phase = .setStroop
+                    }
+                }
+                
             case .results:
-                // Organized final results screen.
-                VStack(spacing: 30) {
-                    VStack {
-                        Text("Test Results")
-                            .bold()
-                            .font(.largeTitle)
-                            .padding(.bottom, 20)
+                // Final results screen displaying results for all music periods.
+                ScrollView {
+                    VStack(spacing: 30) {
                         HStack {
-                            Text("")
+                            Text("Final Test Results")
+                                .font(.largeTitle)
+                                .bold()
                             Spacer()
-                            Button("Quit") {
-                                onQuit()
+                            Button(action: {
+                                isShareSheetPresented = true
+                            }) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.title)
+                            }
+                        }
+                        ForEach(0..<musicPeriods.count, id: \.self) { index in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Music Period: \(musicPeriods[index])")
+                                    .font(.title2)
+                                    .bold()
+                                if index < stroopResultsSet.count {
+                                    let stroop = stroopResultsSet[index]
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("Stroop Test Results:")
+                                            .underline()
+                                        HStack {
+                                            Text("Score:")
+                                            Spacer()
+                                            Text("\(stroop.score)")
+                                        }
+                                        HStack {
+                                            Text("Errors:")
+                                            Spacer()
+                                            Text("\(stroop.errors)")
+                                        }
+                                        HStack {
+                                            Text("Avg Response Time:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", stroop.averageResponseTime))
+                                        }
+                                        HStack {
+                                            Text("Response Time Std Dev:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", stroop.standardDeviationResponseTime))
+                                        }
+                                    }
+                                }
+                                if index < simonResultsSet.count {
+                                    let simon = simonResultsSet[index]
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("Simon Says Results:")
+                                            .underline()
+                                        HStack {
+                                            Text("Final Level:")
+                                            Spacer()
+                                            Text("\(simon.finalLevel)")
+                                        }
+                                        HStack {
+                                            Text("Errors:")
+                                            Spacer()
+                                            Text("\(simon.errors)")
+                                        }
+                                        HStack {
+                                            Text("Avg Tap Time:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", simon.averageTapTime))
+                                        }
+                                        HStack {
+                                            Text("Tap Time Std Dev:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", simon.standardDeviationTapTime))
+                                        }
+                                        HStack {
+                                            Text("Avg Level Time:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", simon.averageLevelTime))
+                                        }
+                                        HStack {
+                                            Text("Level Time Std Dev:")
+                                            Spacer()
+                                            Text(String(format: "%.2f sec", simon.standardDeviationLevelTime))
+                                        }
+                                    }
+                                }
                             }
                             .padding()
-                            .background(Color.gray.opacity(0.3))
+                            .background(Color.gray.opacity(0.2))
                             .cornerRadius(10)
-                            .foregroundColor(.primary)
                         }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Stroop Test Results")
-                            .font(.title2)
-                            .bold()
-                        HStack {
-                            Text("Score:")
-                            Spacer()
-                            Text("\(stroopResults?.score ?? 0)")
-                        }
-                        HStack {
-                            Text("Errors:")
-                            Spacer()
-                            Text("\(stroopResults?.errors ?? 0)")
-                        }
-                        HStack {
-                            Text("Average Response Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec", stroopResults?.averageResponseTime ?? 0.0))
-                        }
-                        HStack {
-                            Text("Standard Deviation of Response Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec", stroopResults?.standardDeviationResponseTime ?? 0.0))
-                        }
+                        Button("Back to Main Menu", action: onQuit)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(15)
+                        Spacer()
                     }
                     .padding()
-                    .background(Color.orange.opacity(0.2))
-                    .cornerRadius(10)
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Simon Says Results")
-                            .font(.title2)
-                            .bold()
-                        HStack {
-                            Text("Final Level:")
-                            Spacer()
-                            Text("\(simonResults?.finalLevel ?? 0)")
-                        }
-                        HStack {
-                            Text("Errors:")
-                            Spacer()
-                            Text("\(simonResults?.errors ?? 0)")
-                        }
-                        HStack {
-                            Text("Average Tap Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec",simonResults?.averageTapTime ?? 0.0))
-                        }
-                        HStack {
-                            Text("Standard Deviation of Tap Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec",simonResults?.standardDeviationTapTime ?? 0.0))
-                        }
-                        HStack {
-                            Text("Average Level Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec",simonResults?.averageLevelTime ?? 0.0))
-                        }
-                        HStack {
-                            Text("Standard Deviation of Level Time:")
-                            Spacer()
-                            Text(String(format: "%.2f sec",simonResults?.standardDeviationLevelTime ?? 0.0))
-                        }
-                    }
-                    .padding()
-                    .background(Color.blue.opacity(0.2))
-                    .cornerRadius(10)
+                }
+                .sheet(isPresented: $isShareSheetPresented) {
+                    ActivityView(activityItems: [shareContent])
                 }
             }
         }
@@ -502,6 +590,19 @@ struct EntireTestView: View {
     }
 }
 
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems,
+                                 applicationActivities: applicationActivities)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Combined Stroop Test View
 
 struct CombinedStroopTestView: View {
     var onQuit: () -> Void
@@ -732,8 +833,6 @@ struct CombinedStroopTestView: View {
     }
 }
 
-
-
 struct StroopNeutralButton: View {
     var word: String
     var action: () -> Void
@@ -836,15 +935,10 @@ struct StroopTestForEntire: View {
                         if !finished {
                             finished = true
                             
-                            //let avg = answerTimes.isEmpty ? 0.0 : answerTimes.reduce(0, +) / Double(answerTimes.count)
-                            
-                            // Compute overall metrics from all response times
-                            
                             let overallAvg = answerTimes.reduce(0, +) / Double(answerTimes.count)
                             overallMeanResponseTime = overallAvg
                             let variance = answerTimes.map { pow($0 - overallAvg, 2) }.reduce(0, +) / Double(answerTimes.count)
                             overallStdDevResponseTime = sqrt(variance)
-                            
                             
                             onFinish(StroopResults(score: score, errors: errorCount, averageResponseTime: overallMeanResponseTime, standardDeviationResponseTime: overallStdDevResponseTime))
                         }
@@ -1041,6 +1135,7 @@ struct SimonTestForEntire: View {
         isGettingReady = true
         showingSequence = true
         message = "Preparing..."
+        // Show starting sequence
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             isGettingReady = false
             Task { await playSequence(isNewLevel: true) }
@@ -1049,7 +1144,7 @@ struct SimonTestForEntire: View {
     
     func resetGame() {
         sequence = []
-        // Initialize starting sequence (using simonIncrement buttons; typically 2)
+        // Initialize the starting sequence with simonIncrement (typically 2) buttons
         for _ in 1...simonIncrement {
             var newButton: Int
             repeat {
@@ -1091,7 +1186,7 @@ struct SimonTestForEntire: View {
     func nextLevel() async {
         currentLevel += 1
         currentInput = []
-        // Append new buttons to the sequence for the new level (simonIncrement buttons)
+        // Append simonIncrement new buttons to the sequence for the next level
         for _ in 1...simonIncrement {
             var newButton: Int
             repeat {
@@ -1129,7 +1224,7 @@ struct SimonTestForEntire: View {
         message = "Repeat the sequence!"
         inputDisabled = false
         
-        // Set the reference time for tap timing now that user input begins
+        // Set the reference time for taps now that user input begins
         lastTapTime = Date()
     }
     
@@ -1137,7 +1232,6 @@ struct SimonTestForEntire: View {
     func handleUserTap(_ buttonIndex: Int) {
         guard !inputDisabled, !showingSequence, !isGettingReady, gameState == .playing else { return }
         
-        // Record tap timing:
         let now = Date()
         if let lastTime = lastTapTime {
             let interval = now.timeIntervalSince(lastTime)
@@ -1149,39 +1243,40 @@ struct SimonTestForEntire: View {
         currentInput.append(buttonIndex)
         let currentIndex = currentInput.count - 1
         
-        // Check correctness of the tap:
+        // Check if the tap is incorrect
         if currentInput[currentIndex] != sequence[currentIndex] {
             errorCount += 1
             message = "Wrong! Try again at level \(currentLevel)"
             isReplayingDueToError = true
             currentInput = []
             inputDisabled = true
+            // Replay sequence (timing data continues to accumulate)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 Task { await playSequence(isNewLevel: false) }
             }
             return
         }
         
-        // If the level is completed successfully:
+        // When the user completes the level correctly...
         if currentInput.count == sequence.count {
             message = "Correct! Next level..."
             inputDisabled = true
             
-            // Compute metrics for this level:
-            // Expected taps based solely on level design.
+            // --- Compute the Metrics for the Completed Level ---
+            // Expected taps is based solely on the level design.
             let expectedTaps = 2 + (currentLevel - 1) * simonIncrement
             let weightedTime = currentLevelActiveTime / Double(expectedTaps)
             weightedLevelTimes.append(weightedTime)
             
-            // Average tap time based on actual tap count:
-            let avgTapTime = currentLevelTapTimes.isEmpty ? 0.0 : currentLevelActiveTime / Double(currentLevelTapTimes.count)
-            averageTapTimes.append(avgTapTime)
+            // Average tap time based on the actual number of taps made
+            let averageTapTime = currentLevelTapTimes.isEmpty ? 0.0 : currentLevelActiveTime / Double(currentLevelTapTimes.count)
+            averageTapTimes.append(averageTapTime)
             
-            // Save additional raw timing data for future analysis:
+            // Save additional data for future analysis
             rawLevelTimes.append(currentLevelActiveTime)
             tapReactionTimes.append(currentLevelTapTimes)
             
-            // Reset timing data for the next level:
+            // Reset timing data for the next level
             currentLevelActiveTime = 0.0
             currentLevelTapTimes = []
             lastTapTime = nil
@@ -1192,9 +1287,11 @@ struct SimonTestForEntire: View {
         }
     }
     
-    // --- Ending the Test and Computing Overall Metrics ---
+    // --- Ending the Game ---
     func endGame() {
-        // Compute overall weighted level time metrics:
+        gameState = .gameOver
+        
+        // Compute overall weighted level time metrics
         if !weightedLevelTimes.isEmpty {
             let meanWeighted = weightedLevelTimes.reduce(0, +) / Double(weightedLevelTimes.count)
             overallWeightedMean = meanWeighted
@@ -1202,7 +1299,7 @@ struct SimonTestForEntire: View {
             overallWeightedStdDev = sqrt(variance)
         }
         
-        // Compute overall average tap time metrics:
+        // Compute overall average tap time metrics
         if !averageTapTimes.isEmpty {
             let meanTap = averageTapTimes.reduce(0, +) / Double(averageTapTimes.count)
             overallTapMean = meanTap
@@ -1289,7 +1386,6 @@ struct GameOverView: View {
 }
 
 // MARK: - Original Simon Says Game View
-
 
 struct SimonSaysGameView: View {
     
@@ -1629,7 +1725,4 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
-
-
-
 
