@@ -1,14 +1,14 @@
-// Cognitive Task Version 2.1 beta 8
+// Cognitive Task Version 2.1 beta 9
 
 import SwiftUI
 
 var isDeveloping: Bool = false
-let simonIncrement = 2
+let simonIncrement = 1.5
 
-let stroopTestDuration = isDeveloping ? 1 : 60
-let simonTestDuration = isDeveloping ? 1 : 180
-let restDuration = isDeveloping ? 1 : 10
-let differentMusicRestDuration = isDeveloping ? 1 : 60
+let stroopTestDuration = isDeveloping ? 5 : 60
+let simonTestDuration = isDeveloping ? 10 : 180
+let restDuration = isDeveloping ? 3 : 10
+let differentMusicRestDuration = isDeveloping ? 5 : 60
 
 //let stroopTestDuration = isDeveloping ? 5 : 60
 //let simonTestDuration = isDeveloping ? 10 : 180
@@ -94,7 +94,7 @@ struct SplashScreenView: View {
                     .animation(.easeOut(duration: 1).delay(0.3), value: animateText)
                 
                 Text("""
-In this experiment, you will perform tasks that test your attention and memory. You'll complete a Stroop test and a Simon Says game while listening to music from different historical periods. Your performance will help us understand how music influences cognitive function.
+In this experiment, you will perform tasks that test your attention and memory. You'll complete Stroop Test and Simon Says Game while listening to music from different historical periods.
 """)
                 .font(.system(size: 20, weight: .medium))
                 .foregroundColor(.white)
@@ -178,7 +178,7 @@ struct ThankYouView: View {
                     .animation(.easeOut(duration: 1).delay(0.3), value: animateElements)
                 
                 Text("""
-I am truly grateful for your participation in this experiment. Your contribution is invaluable in helping us understand the effects of music on cognitive performance.
+I am truly grateful for your participation in this experiment. Your contribution is invaluable in helping understand the effects of different music on cognitive performance.
 """)
                 .font(.system(size: 20, weight: .medium))
                 .foregroundColor(.white)
@@ -470,13 +470,13 @@ struct EntireTestView: View {
                     }
                     .padding()
                     Spacer()
-                    Button("Quit") {
-                        onQuit()
-                    }
-                    .padding()
-                    .background(Color.red)
-                    .cornerRadius(10)
-                    .foregroundColor(.white)
+                    //Button("Quit") {
+                    //onQuit()
+                    //}
+                    //.padding()
+                    //.background(Color.red)
+                    //.cornerRadius(10)
+                    //.foregroundColor(.white)
                 }
                 .onAppear { restCountdown = restDuration }
                 .onReceive(phaseTimer) { _ in
@@ -509,13 +509,13 @@ struct EntireTestView: View {
                     }
                     .padding()
                     Spacer()
-                    Button("Quit") {
-                        onQuit()
-                    }
-                    .padding()
-                    .background(Color.red)
-                    .cornerRadius(10)
-                    .foregroundColor(.white)
+                    //Button("Quit") {
+                    //onQuit()
+                    //}
+                    //.padding()
+                    //.background(Color.red)
+                    //.cornerRadius(10)
+                    //.foregroundColor(.white)
                 }
                 .onAppear { breakCountdown = differentMusicRestDuration }
                 .onReceive(phaseTimer) { _ in
@@ -681,13 +681,13 @@ struct UserInfoEntryView: View {
                 }
                 .padding(.horizontal)
             }
-            TextField("Full Name", text: $name)
+            TextField("Name", text: $name)
                 .padding()
                 .background(Color(UIColor.secondarySystemBackground))
                 .cornerRadius(15)
                 .padding(.horizontal)
             
-            TextField("Participant Number", text: $participantNumber)
+            TextField("Student Number", text: $participantNumber)
                 .keyboardType(.numberPad)
                 .padding()
                 .background(Color(UIColor.secondarySystemBackground))
@@ -1051,12 +1051,14 @@ struct StroopTestForEntire: View {
                         }
                     }
                 }
-                Button("Quit") { onQuit() }
-                    .padding(10)
-                    .background(Color.gray.opacity(0.3))
-                    .cornerRadius(10)
-                    .padding(.top)
-                    .contentShape(Rectangle())
+                //Button("Quit") {
+                //onQuit()
+                //}
+                //.padding(10)
+                //.background(Color.gray.opacity(0.3))
+                //.cornerRadius(10)
+                //.padding(.top)
+                //.contentShape(Rectangle())
             } else {
                 Text("Finishing Stroop Test...")
                     .onAppear {
@@ -1187,12 +1189,12 @@ struct SimonTestForEntire: View {
                             Text(message)
                                 .foregroundColor(.red)
                             Spacer()
-                            Button(action: onQuit) {
-                                Text("Quit")
-                                    .padding(10)
-                                    .background(Color.gray.opacity(0.3))
-                                    .cornerRadius(10)
-                            }
+                            //Button(action: onQuit) {
+                            //Text("Quit")
+                            //.padding(10)
+                            //.background(Color.gray.opacity(0.3))
+                            //.cornerRadius(10)
+                            //}
                         }
                         .padding(.horizontal)
                         GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
@@ -1265,7 +1267,11 @@ struct SimonTestForEntire: View {
     
     func resetGame() {
         sequence = []
-        for _ in 1...simonIncrement {
+        currentLevel = 1
+        
+        // For level 1, desired sequence length = Int(round(1.5)) = 2.
+        let desiredCount = Int(round(Double(currentLevel) * simonIncrement))
+        for _ in 1 ... desiredCount {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1275,7 +1281,6 @@ struct SimonTestForEntire: View {
             sequence.append(newButton)
         }
         currentInput = []
-        currentLevel = 1
         errorCount = 0
         message = ""
         remainingTime = simonTestDuration
@@ -1304,7 +1309,12 @@ struct SimonTestForEntire: View {
     func nextLevel() async {
         currentLevel += 1
         currentInput = []
-        for _ in 1...simonIncrement {
+        // Calculate the desired total sequence length for the new level.
+        let desiredCount = Int(round(Double(currentLevel) * simonIncrement))
+        let newButtonsNeeded = max(0, desiredCount - sequence.count)
+        
+        // Append simonIncrement new buttons to the sequence for the next level
+        for _ in 1 ... newButtonsNeeded {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1373,8 +1383,8 @@ struct SimonTestForEntire: View {
             message = "Correct! Next level..."
             inputDisabled = true
             
-            let expectedTaps = 2 + (currentLevel - 1) * simonIncrement
-            let weightedTime = currentLevelActiveTime / Double(expectedTaps)
+            let expectedTaps = round(Double(currentLevel) * simonIncrement)
+            let weightedTime = currentLevelActiveTime / expectedTaps
             weightedLevelTimes.append(weightedTime)
             
             let averageTapTime = currentLevelTapTimes.isEmpty ? 0.0 : currentLevelActiveTime / Double(currentLevelTapTimes.count)
@@ -1489,6 +1499,7 @@ struct GameOverView: View {
     }
 }
 
+
 // MARK: - Original Simon Says Game View
 
 struct SimonSaysGameView: View {
@@ -1499,7 +1510,7 @@ struct SimonSaysGameView: View {
     @State private var gameState: GameState = .start
     @State private var sequence: [Int] = []
     @State private var currentInput: [Int] = []
-    @State private var currentLevel: Int = 1  // Level 1 starts with a sequence length of 2
+    @State private var currentLevel: Int = 1
     @State private var errorCount: Int = 0
     @State private var message: String = ""
     @State private var showingSequence: Bool = false
@@ -1663,8 +1674,12 @@ struct SimonSaysGameView: View {
     
     func resetGame() {
         sequence = []
+        currentLevel = 1
         // Initialize the starting sequence with simonIncrement (typically 2) buttons
-        for _ in 1...simonIncrement {
+        
+        // For level 1, desired sequence length = Int(round(1.5)) = 2.
+        let desiredCount = Int(round(Double(currentLevel) * simonIncrement))
+        for _ in 1 ... desiredCount {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1674,7 +1689,6 @@ struct SimonSaysGameView: View {
             sequence.append(newButton)
         }
         currentInput = []
-        currentLevel = 1
         errorCount = 0
         message = ""
         remainingTime = simonTestDuration
@@ -1701,8 +1715,13 @@ struct SimonSaysGameView: View {
     func nextLevel() async {
         currentLevel += 1
         currentInput = []
+        
+        // Calculate the desired total sequence length for the new level.
+        let desiredCount = Int(round(Double(currentLevel) * simonIncrement))
+        let newButtonsNeeded = max(0, desiredCount - sequence.count)
+        
         // Append simonIncrement new buttons to the sequence for the next level
-        for _ in 1...simonIncrement {
+        for _ in 1 ... newButtonsNeeded {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -1779,8 +1798,8 @@ struct SimonSaysGameView: View {
             
             // --- Compute the Metrics for the Completed Level ---
             // Expected taps is based solely on the level design.
-            let expectedTaps = 2 + (currentLevel - 1) * simonIncrement
-            let weightedTime = currentLevelActiveTime / Double(expectedTaps)
+            let expectedTaps = round(Double(currentLevel) * simonIncrement)
+            let weightedTime = currentLevelActiveTime / expectedTaps
             weightedLevelTimes.append(weightedTime)
             
             // Average tap time based on the actual number of taps made
