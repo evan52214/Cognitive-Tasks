@@ -2,7 +2,7 @@
 
 import SwiftUI
 
-var isDeveloping: Bool = true
+var isDeveloping: Bool = false
 let simonIncrement = 2
 
 let stroopTestDuration = isDeveloping ? 5 : 60
@@ -269,12 +269,15 @@ struct TestSelectionView: View {
                 // Stroop Test Button
                 Button(action: { onSelection(.stroop) }) {
                     VStack {
-                        Image(systemName: "brain.head.profile")
+                        Image(systemName: "richtext.page")
                             .resizable()
                             .scaledToFit()
                             .frame(width: 50, height: 50)
                             .foregroundColor(.white)
-                        Text("Stroop Test")
+                        Text("""
+English
+Stroop Test
+""")
                             .font(.title2)
                             .bold()
                             .foregroundColor(.white)
@@ -294,12 +297,15 @@ struct TestSelectionView: View {
                 // Simon Says Button
                 Button(action: { onSelection(.simon) }) {
                     VStack {
-                        Image(systemName: "hand.tap.fill")
+                        Image(systemName: "richtext.page.zh")
                             .resizable()
                             .scaledToFit()
                             .frame(width: 50, height: 50)
                             .foregroundColor(.white)
-                        Text("Simon Says")
+                        Text("""
+中文版 
+Stroop Test
+""")
                             .font(.title2)
                             .bold()
                             .foregroundColor(.white)
@@ -1386,334 +1392,230 @@ struct GameOverView: View {
 // MARK: - Original Simon Says Game View
 
 struct SimonSaysGameView: View {
-    
     var onQuit: () -> Void
     
-    // Core game state
-    @State private var gameState: GameState = .start
-    @State private var sequence: [Int] = []
-    @State private var currentInput: [Int] = []
-    @State private var currentLevel: Int = 1  // Level 1 starts with a sequence length of 2
+    // Phase management
+    @State private var phase: StroopTestPhase = .ready
+    
+    // Common test states
+    @State private var currentWord: String = ""
+    @State private var currentFontColor: Color = .black
+    @State private var correctAnswer: String = ""
+    @State private var score: Int = 0
     @State private var errorCount: Int = 0
-    @State private var message: String = ""
-    @State private var showingSequence: Bool = false
-    @State private var isGettingReady: Bool = false
-    @State private var inputDisabled: Bool = false
-    @State private var finished: Bool = false
+    @State private var remainingTime: Int = stroopTestDuration  // e.g., 60 seconds
+    @State private var testActive: Bool = false
+    @State private var answerTimes: [TimeInterval] = []
+    @State private var startTime: Date = Date()
     
-    @State private var isSequencePlaying: Bool = false
-    @State private var isReplayingDueToError: Bool = false
-    @State private var skipSequence: Bool = false
+    // New overall metrics (computed at end)
+    @State private var overallMeanResponseTime: Double? = nil
+    @State private var overallStdDevResponseTime: Double? = nil
     
-    @State private var remainingTime: Int = simonTestDuration  // e.g., 3 minutes
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
-    // Used for button flash animations
-    @State private var currentFlashingButton: Int? = nil
-    
-    // --- New Timing Metrics State Variables ---
-    // For each level, we accumulate the total “active” (input) time
-    @State private var currentLevelActiveTime: Double = 0.0
-    // For each level, we record the reaction time of every tap
-    @State private var currentLevelTapTimes: [Double] = []
-    // Timestamp for the last tap – used to calculate the interval
-    @State private var lastTapTime: Date? = nil
-    
-    // Arrays to store computed per–level metrics
-    // (Metric 1) Weighted level time: active time divided by expected taps per level
-    @State private var weightedLevelTimes: [Double] = []
-    // (Metric 2) Average tap time: active time divided by the actual number of taps recorded in the level
-    @State private var averageTapTimes: [Double] = []
-    
-    // Additional data storage for future analysis (not displayed)
-    // Total raw active time per level (without any weighting)
-    @State private var rawLevelTimes: [Double] = []
-    // 2D array: each level’s individual tap reaction times
-    @State private var tapReactionTimes: [[Double]] = []
-    
-    // Overall metrics to be computed at game over and displayed
-    @State private var overallWeightedMean: Double? = nil
-    @State private var overallWeightedStdDev: Double? = nil
-    @State private var overallTapMean: Double? = nil
-    @State private var overallTapStdDev: Double? = nil
+    // Data for color words and their mapping
+    let colorWords = ["红色", "绿色", "蓝色", "黄色", "紫色"]
+    let colors: [String: Color] = [
+        "红色": .red,
+        "绿色": .green,
+        "蓝色": .blue,
+        "黄色": .yellow,
+        "紫色": .purple
+    ]
     
     var body: some View {
-        ZStack {
-            VStack {
-                switch gameState {
-                case .start:
-                    Text("Starting Simon Says Game...")
-                        .onAppear {
-                            startGame()
-                        }
-                case .playing:
-                    VStack(spacing: 30) {
-                        HStack {
-                            Text("Time: \(remainingTime)s")
-                            Spacer()
-                            Text("Errors: \(errorCount)")
-                        }
-                        .padding(.horizontal)
-                        
-                        Text(isGettingReady ? "Get ready..." : "Level \(currentLevel)")
-                            .font(.system(size: 48, weight: .bold))
-                            .foregroundColor(isGettingReady ? .gray : .primary)
-                            .padding(.vertical)
-                        
-                        HStack {
-                            Text(message)
-                                .foregroundColor(.red)
-                            Spacer()
-                            Button(action: onQuit) {
-                                Text("Quit")
-                                    .padding(10)
-                                    .background(Color.gray.opacity(0.3))
-                                    .cornerRadius(10)
-                            }
-                        }
-                        .padding(.horizontal)
-                        GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                case .gameOver:
-                    VStack(spacing: 40) {
-                        Spacer()
-                        Text("Test Over")
-                            .font(.largeTitle)
-                        
-                        Text("Final Level: \(currentLevel - 1)")
-                        Text("Total Errors: \(errorCount)")
-                        
-                        if let overallWeightedMean = overallWeightedMean,
-                           let overallWeightedStdDev = overallWeightedStdDev {
-                            Text("Overall Weighted Level Time: \(overallWeightedMean, specifier: "%.2f") sec (Std Dev: \(overallWeightedStdDev, specifier: "%.2f"))")
-                        }
-                        
-                        if let overallTapMean = overallTapMean,
-                           let overallTapStdDev = overallTapStdDev {
-                            Text("Overall Average Tap Time: \(overallTapMean, specifier: "%.2f") sec (Std Dev: \(overallTapStdDev, specifier: "%.2f"))")
-                        }
-                        
-                        Spacer()
-                        Button(action: onQuit) {
-                            Text("Back to Menu")
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(15)
-                        }
-                        .padding(.horizontal)
-                        .contentShape(Rectangle())
-                    }
-                }
-            }
-            
-            if isReplayingDueToError && isSequencePlaying && gameState == .playing {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Button(action: {
-                            skipSequence = true
-                        }) {
-                            Text("Skip Replay")
-                                .padding()
-                                .background(Color.pink)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                        }
-                        .padding()
-                    }
-                }
+        Group {
+            switch phase {
+            case .ready:
+                readyView
+            case .running:
+                runningView
+            case .finished:
+                finishedView
             }
         }
         .onReceive(timer) { _ in
-            if gameState == .playing {
-                if !isGettingReady && remainingTime > 0 {
-                    remainingTime -= 1
-                }
+            if phase == .running && testActive && remainingTime > 0 {
+                remainingTime -= 1
                 if remainingTime == 0 {
-                    endGame()
+                    finishTest()
                 }
             }
         }
         .padding()
     }
     
-    // --- Game Setup and Reset ---
-    func startGame() {
-        resetGame()
-        gameState = .playing
-        isGettingReady = true
-        showingSequence = true
-        message = "Preparing..."
-        // Show starting sequence
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            isGettingReady = false
-            Task { await playSequence(isNewLevel: true) }
+    // MARK: - Ready View
+    var readyView: some View {
+        VStack(spacing: 40) {
+            Text("Stroop Test")
+                .font(.largeTitle)
+                .bold()
+            Text("Prepare to test your attention and interference control. When ready, press the button below to start the 1‑minute test.")
+                .multilineTextAlignment(.center)
+                .padding()
+            Button(action: {
+                phase = .running
+                startStroopTest()
+            }) {
+                Text("Start Test")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(15)
+            }
+            .contentShape(Rectangle())
         }
     }
     
-    func resetGame() {
-        sequence = []
-        // Initialize the starting sequence with simonIncrement (typically 2) buttons
-        for _ in 1...simonIncrement {
-            var newButton: Int
-            repeat {
-                newButton = Int.random(in: 0...3)
-            } while (sequence.count >= 2 &&
-                     sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
-                     newButton == sequence.last)
-            sequence.append(newButton)
+    // MARK: - Running View
+    var runningView: some View {
+        VStack(spacing: 30) {
+            if remainingTime > 0 {
+                HStack {
+                    Text("Time: \(remainingTime)s")
+                    Spacer()
+                    Text("Score: \(score)")
+                    Spacer()
+                    Text("Errors: \(errorCount)")
+                }
+                .padding(.horizontal)
+                Text("Identify the **font color** of the word:")
+                    .padding()
+                Text(currentWord)
+                    .font(.system(size: 72, weight: .bold))
+                    .frame(width: 350, height: 150)
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(currentFontColor)
+                    .cornerRadius(20)
+                    .padding()
+                // Buttons grid for answers
+                VStack {
+                    HStack(spacing: 20) {
+                        ForEach(colorWords.prefix(3), id: \.self) { word in
+                            StroopNeutralButton(word: word, action: {
+                                checkAnswer(selected: word)
+                            })
+                        }
+                    }
+                    HStack(spacing: 20) {
+                        ForEach(colorWords.suffix(2), id: \.self) { word in
+                            StroopNeutralButton(word: word, action: {
+                                checkAnswer(selected: word)
+                            })
+                        }
+                    }
+                }
+                Button("Quit") {
+                    onQuit()
+                }
+                .padding(10)
+                .background(Color.gray.opacity(0.3))
+                .cornerRadius(10)
+                .padding(.top)
+                .contentShape(Rectangle())
+            }
         }
-        currentInput = []
-        currentLevel = 1
+        .onAppear {
+            // When running view appears, ensure the test is active.
+            testActive = true
+        }
+    }
+    
+    // MARK: - Finished View
+    var finishedView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Text("Stroop Test Completed!")
+                .font(.largeTitle)
+            Text("✅ Final Score: \(score)")
+            Text("❌ Total Errors: \(errorCount)")
+            if let overallMean = overallMeanResponseTime,
+               let overallStdDev = overallStdDevResponseTime {
+                Text("⏱ Overall Mean Response Time: \(overallMean, specifier: "%.2f") sec")
+                Text("⏱ Response Time Std Dev: \(overallStdDev, specifier: "%.2f") sec")
+            }
+            Spacer()
+            Button(action: onQuit) {
+                Text("Back to Main Menu")
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(15)
+                    .contentShape(Rectangle())
+            }
+        }
+        .padding()
+    }
+    
+    // MARK: - Functions
+    
+    func startStroopTest() {
+        // Initialize or reset variables
+        score = 0
         errorCount = 0
-        message = ""
-        remainingTime = simonTestDuration
-        showingSequence = false
-        currentFlashingButton = nil
-        isGettingReady = false
-        inputDisabled = false
-        
-        // Reset all timing metrics variables
-        currentLevelActiveTime = 0.0
-        currentLevelTapTimes = []
-        lastTapTime = nil
-        weightedLevelTimes = []
-        averageTapTimes = []
-        rawLevelTimes = []
-        tapReactionTimes = []
-        overallWeightedMean = nil
-        overallWeightedStdDev = nil
-        overallTapMean = nil
-        overallTapStdDev = nil
+        remainingTime = stroopTestDuration
+        testActive = true
+        answerTimes = []
+        nextStroopTrial()
     }
     
-    // --- Level Progression ---
-    func nextLevel() async {
-        currentLevel += 1
-        currentInput = []
-        // Append simonIncrement new buttons to the sequence for the next level
-        for _ in 1...simonIncrement {
-            var newButton: Int
-            repeat {
-                newButton = Int.random(in: 0...3)
-            } while (sequence.count >= 2 &&
-                     sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
-                     newButton == sequence.last)
-            sequence.append(newButton)
-        }
-        await playSequence(isNewLevel: true)
+    func nextStroopTrial() {
+        // Randomly choose a word and a font color (ensuring they do not match)
+        let word = colorWords.randomElement()!
+        let possibleColors = colorWords.filter { $0 != word }
+        let fontColorName = possibleColors.randomElement()!
+        let fontColor = colors[fontColorName]!
+        currentWord = word
+        currentFontColor = fontColor
+        correctAnswer = fontColorName
+        // Record start time for this trial
+        startTime = Date()
     }
     
-    // --- Playing the Sequence ---
-    func playSequence(isNewLevel: Bool) async {
-        showingSequence = true
-        isSequencePlaying = true
-        message = isNewLevel ? "New level – watch closely!" : "Wrong! Replaying sequence..."
-        let flashDuration: UInt64 = 200_000_000
-        let pauseDuration: UInt64 = 300_000_000
-        for button in sequence {
-            if skipSequence { break }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                currentFlashingButton = button
-            }
-            try? await Task.sleep(nanoseconds: flashDuration)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                currentFlashingButton = nil
-            }
-            try? await Task.sleep(nanoseconds: pauseDuration)
-        }
-        isSequencePlaying = false
-        isReplayingDueToError = false
-        skipSequence = false
-        showingSequence = false
-        message = "Repeat the sequence!"
-        inputDisabled = false
-        
-        // Set the reference time for taps now that user input begins
-        lastTapTime = Date()
-    }
-    
-    // --- Handling User Taps ---
-    func handleUserTap(_ buttonIndex: Int) {
-        guard !inputDisabled, !showingSequence, !isGettingReady, gameState == .playing else { return }
-        
-        let now = Date()
-        if let lastTime = lastTapTime {
-            let interval = now.timeIntervalSince(lastTime)
-            currentLevelActiveTime += interval
-            currentLevelTapTimes.append(interval)
-        }
-        lastTapTime = now
-        
-        currentInput.append(buttonIndex)
-        let currentIndex = currentInput.count - 1
-        
-        // Check if the tap is incorrect
-        if currentInput[currentIndex] != sequence[currentIndex] {
+    func checkAnswer(selected: String) {
+        guard testActive else { return }
+        let responseTime = Date().timeIntervalSince(startTime)
+        if selected == correctAnswer {
+            score += 1
+        } else {
             errorCount += 1
-            message = "Wrong! Try again at level \(currentLevel)"
-            isReplayingDueToError = true
-            currentInput = []
-            inputDisabled = true
-            // Replay sequence (timing data continues to accumulate)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                Task { await playSequence(isNewLevel: false) }
-            }
-            return
         }
-        
-        // When the user completes the level correctly...
-        if currentInput.count == sequence.count {
-            message = "Correct! Next level..."
-            inputDisabled = true
-            
-            // --- Compute the Metrics for the Completed Level ---
-            // Expected taps is based solely on the level design.
-            let expectedTaps = 2 + (currentLevel - 1) * simonIncrement
-            let weightedTime = currentLevelActiveTime / Double(expectedTaps)
-            weightedLevelTimes.append(weightedTime)
-            
-            // Average tap time based on the actual number of taps made
-            let averageTapTime = currentLevelTapTimes.isEmpty ? 0.0 : currentLevelActiveTime / Double(currentLevelTapTimes.count)
-            averageTapTimes.append(averageTapTime)
-            
-            // Save additional data for future analysis
-            rawLevelTimes.append(currentLevelActiveTime)
-            tapReactionTimes.append(currentLevelTapTimes)
-            
-            // Reset timing data for the next level
-            currentLevelActiveTime = 0.0
-            currentLevelTapTimes = []
-            lastTapTime = nil
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                Task { await nextLevel() }
-            }
-        }
+        answerTimes.append(responseTime)
+        nextStroopTrial()
     }
     
-    // --- Ending the Game ---
-    func endGame() {
-        gameState = .gameOver
-        
-        // Compute overall weighted level time metrics
-        if !weightedLevelTimes.isEmpty {
-            let meanWeighted = weightedLevelTimes.reduce(0, +) / Double(weightedLevelTimes.count)
-            overallWeightedMean = meanWeighted
-            let variance = weightedLevelTimes.map { pow($0 - meanWeighted, 2) }.reduce(0, +) / Double(weightedLevelTimes.count)
-            overallWeightedStdDev = sqrt(variance)
+    func finishTest() {
+        testActive = false
+        // Compute overall metrics from all response times
+        if !answerTimes.isEmpty {
+            let overallAvg = answerTimes.reduce(0, +) / Double(answerTimes.count)
+            overallMeanResponseTime = overallAvg
+            let variance = answerTimes.map { pow($0 - overallAvg, 2) }.reduce(0, +) / Double(answerTimes.count)
+            overallStdDevResponseTime = sqrt(variance)
         }
+        phase = .finished
+    }
+    
+    // MARK: - StroopNeutralButton as Nested View
+    struct StroopNeutralButton: View {
+        var word: String
+        var action: () -> Void
         
-        // Compute overall average tap time metrics
-        if !averageTapTimes.isEmpty {
-            let meanTap = averageTapTimes.reduce(0, +) / Double(averageTapTimes.count)
-            overallTapMean = meanTap
-            let variance = averageTapTimes.map { pow($0 - meanTap, 2) }.reduce(0, +) / Double(averageTapTimes.count)
-            overallTapStdDev = sqrt(variance)
+        var body: some View {
+            Button(action: action) {
+                Text(word)
+                    .font(.system(size: 36, weight: .bold))
+                    .frame(width: 180, height: 100)
+                    .background(Color(UIColor.lightGray))
+                    .foregroundColor(.black)
+                    .cornerRadius(15)
+                    .shadow(radius: 3)
+            }
+            .contentShape(Rectangle())
         }
     }
 }
