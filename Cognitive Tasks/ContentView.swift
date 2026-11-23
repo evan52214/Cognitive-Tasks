@@ -1,6 +1,12 @@
-// Cognitive Task Version 2.0
+// Cognitive Task Version 2.0.3
 
 import SwiftUI
+
+var isDeveloping: Bool = false
+
+let stroopTestDuration = isDeveloping ? 5 : 60
+let simonTestDuration = isDeveloping ? 5 : 180
+let restDuration = isDeveloping ? 3 : 10
 
 // MARK: - Test Types and Results Structures
 
@@ -123,12 +129,11 @@ struct TestSelectionView: View {
                 .font(.title2)
                 .padding(.top, 20)
             Button(action: {
-                onSelection(.entire)
-            }) {
+                }) {
                 Text("Start Entire Test")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.green)
+                    .background(Color.gray)
                     .foregroundColor(.white)
                     .cornerRadius(15)
             }
@@ -191,7 +196,7 @@ struct EntireTestView: View {
                     .foregroundColor(.white)
                 }
                 .onAppear {
-                    restCountdown = 10 // Reset countdown when this stage appears.
+                    restCountdown = restDuration // Reset countdown when this stage appears.
                 }
                 .onReceive(restTimer) { _ in
                     if restCountdown > 0 {
@@ -314,7 +319,7 @@ struct StroopTestView: View {
     @State private var correctAnswer: String = ""
     @State private var score: Int = 0
     @State private var errorCount: Int = 0
-    @State private var remainingTime: Int = 60  // 1 minute
+    @State private var remainingTime: Int = stroopTestDuration  // 1 minute
     @State private var testActive: Bool = false
     @State private var startTime: Date = Date()
     @State private var correctAnswerTimes: [TimeInterval] = []
@@ -384,15 +389,15 @@ struct StroopTestView: View {
                     Text("✅ Final Score: \(score)")
                     Text("❌ Total Errors: \(errorCount)")
                     Text("⏱ Avg. Response Time: \(averageResponseTime(), specifier: "%.2f") sec")
-                    Button("Back to Start") {
-                        onQuit()
+                    Button(action: onQuit) {
+                        Text("Back to Main Menu")
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(15)
+                            .contentShape(Rectangle())
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(15)
-                    .contentShape(Rectangle())
                 }
                 .padding()
             }
@@ -412,7 +417,7 @@ struct StroopTestView: View {
     func startStroopTest() {
         score = 0
         errorCount = 0
-        remainingTime = 60
+        remainingTime = stroopTestDuration
         testActive = true
         correctAnswerTimes = []
         nextStroopTrial()
@@ -478,7 +483,7 @@ struct StroopTestForEntire: View {
     @State private var correctAnswer: String = ""
     @State private var score: Int = 0
     @State private var errorCount: Int = 0
-    @State private var remainingTime: Int = 60
+    @State private var remainingTime: Int = stroopTestDuration
     @State private var testActive: Bool = false
     @State private var startTime: Date = Date()
     @State private var correctAnswerTimes: [TimeInterval] = []
@@ -566,7 +571,7 @@ struct StroopTestForEntire: View {
     func startStroopTest() {
         score = 0
         errorCount = 0
-        remainingTime = 60
+        remainingTime = stroopTestDuration
         testActive = true
         correctAnswerTimes = []
         nextStroopTrial()
@@ -612,54 +617,79 @@ struct SimonTestForEntire: View {
     @State private var inputDisabled: Bool = false
     @State private var finished: Bool = false
     
-    @State private var remainingTime: Int = 180  // 3 minutes
+    @State private var isSequencePlaying: Bool = false
+    @State private var isReplayingDueToError: Bool = false
+    @State private var skipSequence: Bool = false
+    
+    @State private var remainingTime: Int = simonTestDuration  // 3 minutes
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        VStack {
-            switch gameState {
-            case .start:
-                Text("Starting Simon Says Game...")
-                    .onAppear {
-                        startGame()
+        ZStack{
+            VStack {
+                switch gameState {
+                case .start:
+                    Text("Starting Simon Says Game...")
+                        .onAppear {
+                            startGame()
+                        }
+                case .playing:
+                    VStack(spacing: 30) {
+                        HStack {
+                            Text("Time: \(remainingTime)s")
+                            Spacer()
+                            Text("Errors: \(errorCount)")
+                        }
+                        .padding(.horizontal)
+                        
+                        Text(isGettingReady ? "Get ready..." : "Level \(currentLevel)")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(isGettingReady ? .gray : .primary)
+                            .padding(.vertical)
+                        
+                        HStack {
+                            Text(message)
+                                .foregroundColor(.red)
+                            Spacer()
+                            Button(action: onQuit) {
+                                Text("Quit")
+                                    .padding(10)
+                                    .background(Color.gray.opacity(0.3))
+                                    .cornerRadius(10)
+                            }
+                        }
+                        .padding(.horizontal)
+                        GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-            case .playing:
-                VStack(spacing: 30) {
+                case .gameOver:
+                    Text("Finishing Simon Says Test...")
+                        .onAppear {
+                            if !finished {
+                                finished = true
+                                onFinish(SimonResults(finalLevel: currentLevel, errors: errorCount))
+                            }
+                        }
+                }
+            }
+            
+            if isReplayingDueToError && isSequencePlaying && gameState == .playing{
+                VStack {
+                    Spacer()
                     HStack {
-                        Text("Time: \(remainingTime)s")
                         Spacer()
-                        Text("Errors: \(errorCount)")
-                    }
-                    .padding(.horizontal)
-                    
-                    Text(isGettingReady ? "Get ready..." : "Level \(currentLevel)")
-                        .font(.system(size: 48, weight: .bold))
-                        .foregroundColor(isGettingReady ? .gray : .primary)
-                        .padding(.vertical)
-                    
-                    HStack {
-                        Text(message)
-                            .foregroundColor(.red)
-                        Spacer()
-                        Button(action: onQuit) {
-                            Text("Quit")
-                                .padding(10)
-                                .background(Color.gray.opacity(0.3))
+                        Button(action: {
+                            skipSequence = true
+                        }) {
+                            Text("Skip Replay")
+                                .padding()
+                                .background(Color.pink)
+                                .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
+                        .padding()
                     }
-                    .padding(.horizontal)
-                    GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            case .gameOver:
-                Text("Finishing Simon Says Test...")
-                    .onAppear {
-                        if !finished {
-                            finished = true
-                            onFinish(SimonResults(finalLevel: currentLevel, errors: errorCount))
-                        }
-                    }
             }
         }
         .onReceive(timer) { _ in
@@ -702,7 +732,7 @@ struct SimonTestForEntire: View {
         currentLevel = 4
         errorCount = 0
         message = ""
-        remainingTime = 180
+        remainingTime = simonTestDuration
         showingSequence = false
         currentFlashingButton = nil
         isGettingReady = false
@@ -719,15 +749,17 @@ struct SimonTestForEntire: View {
                  sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
                  newButton == sequence.last)
         sequence.append(newButton)
-        await playSequence()
+        await playSequence(isNewLevel: true)
     }
     
-    func playSequence() async {
+    func playSequence(isNewLevel: Bool) async {
         showingSequence = true
-        message = "Watch the sequence..."
+        isSequencePlaying = true
+        message = isNewLevel ? "New level – watch closely!" : "Wrong! Replaying sequence..."
         let flashDuration: UInt64 = 200_000_000
         let pauseDuration: UInt64 = 300_000_000
         for button in sequence {
+            if skipSequence { break }
             withAnimation(.easeInOut(duration: 0.2)) {
                 currentFlashingButton = button
             }
@@ -737,6 +769,9 @@ struct SimonTestForEntire: View {
             }
             try? await Task.sleep(nanoseconds: pauseDuration)
         }
+        isSequencePlaying = false
+        isReplayingDueToError = false
+        skipSequence = false
         showingSequence = false
         message = "Repeat the sequence!"
         inputDisabled = false
@@ -749,10 +784,11 @@ struct SimonTestForEntire: View {
         if currentInput[currentIndex] != sequence[currentIndex] {
             errorCount += 1
             message = "Wrong! Try again at level \(currentLevel)"
+            isReplayingDueToError = true
             currentInput = []
             inputDisabled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                Task { await playSequence() }
+                Task { await playSequence(isNewLevel: false) }
             }
             return
         }
@@ -832,7 +868,7 @@ struct GameOverView: View {
             }
             Text("Total Errors: \(errorCount)")
             Button(action: onRestart) {
-                Text("Back to Start")
+                Text("Back to Menu")
                     .padding()
                     .frame(maxWidth: .infinity)
                     .background(Color.green)
@@ -847,72 +883,116 @@ struct GameOverView: View {
 
 // MARK: - Original Simon Says Game View
 
+
 struct SimonSaysGameView: View {
-    // Game State Variables
+    
+    var onQuit: () -> Void
+    
     @State private var gameState: GameState = .start
     @State private var sequence: [Int] = []
     @State private var currentInput: [Int] = []
-    @State private var currentLevel: Int = 5  // Start at level 5
+    @State private var currentLevel: Int = 1  // Start at level 1 (sequence length 2)
     @State private var errorCount: Int = 0
     @State private var message: String = ""
     @State private var showingSequence: Bool = false
     @State private var currentFlashingButton: Int? = nil
     @State private var isGettingReady: Bool = false
     @State private var inputDisabled: Bool = false
+    @State private var finished: Bool = false
     
-    // Timer Variables
-    @State private var remainingTime: Int = 180  // 3 minutes
+    @State private var isSequencePlaying: Bool = false
+    @State private var isReplayingDueToError: Bool = false
+    @State private var skipSequence: Bool = false
+    
+    @State private var remainingTime: Int = simonTestDuration  // e.g., 3 minutes
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
-    var onQuit: () -> Void
-    
     var body: some View {
-        VStack {
-            switch gameState {
-            case .start:
-                VStack(spacing: 40) {
-                    Text("Simon Says")
-                        .font(.largeTitle)
-                    Text("Get ready to test your memory and reaction speed. When you’re ready, press the button below to start the game.")
-                        .multilineTextAlignment(.center)
+        ZStack {
+            VStack {
+                switch gameState {
+                case .start:
+                    Text("Starting Simon Says Game...")
+                        .onAppear {
+                            startGame()
+                        }
+                case .playing:
+                    VStack(spacing: 30) {
+                        HStack {
+                            Text("Time: \(remainingTime)s")
+                            Spacer()
+                            Text("Errors: \(errorCount)")
+                        }
+                        .padding(.horizontal)
+                        
+                        Text(isGettingReady ? "Get ready..." : "Level \(currentLevel)")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(isGettingReady ? .gray : .primary)
+                            .padding(.vertical)
+                        
+                        HStack {
+                            Text(message)
+                                .foregroundColor(.red)
+                            Spacer()
+                            Button(action: onQuit) {
+                                Text("Quit")
+                                    .padding(10)
+                                    .background(Color.gray.opacity(0.3))
+                                    .cornerRadius(10)
+                            }
+                        }
+                        .padding(.horizontal)
+                        GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                case .gameOver:
+                    VStack(spacing: 40) {
+                        Text("Test Over")
+                            .font(.largeTitle)
+                        
+                        Text("Final Level: \(currentLevel)")
+                        
+                        Text("Total Errors: \(errorCount)")
+                        Button(action: onQuit) {
+                            Text("Back to Menu")
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(15)
+                        }
+                        .padding(.horizontal)
+                        .contentShape(Rectangle())
+                    }
+                }
+            }
+            
+            if isReplayingDueToError && isSequencePlaying && gameState == .playing {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            skipSequence = true
+                        }) {
+                            Text("Skip Replay")
+                                .padding()
+                                .background(Color.pink)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
                         .padding()
-                    Button(action: {
-                        startGame()
-                    }) {
-                        Text("Start Game")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(15)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                }
-            case .playing:
-                SimonGameView(
-                    currentLevel: currentLevel,
-                    errorCount: errorCount,
-                    remainingTime: remainingTime,
-                    message: message,
-                    showingSequence: showingSequence,
-                    currentFlashingButton: currentFlashingButton,
-                    handleUserTap: handleUserTap,
-                    onQuit: { onQuit() },
-                    isPreparing: isGettingReady
-                )
-                .onReceive(timer) { _ in
-                    if !isGettingReady && remainingTime > 0 {
-                        remainingTime -= 1
-                    }
-                    if remainingTime == 0 {
-                        endGame()
                     }
                 }
-            case .gameOver:
-                GameOverView(finalLevel: currentLevel, errorCount: errorCount) {
-                    resetGame()
-                    gameState = .start
+            }
+        }
+        .onReceive(timer) { _ in
+            if gameState == .playing {
+                if !isGettingReady && remainingTime > 0 {
+                    remainingTime -= 1
+                }
+                if remainingTime == 0 {
+                    endGame()
                 }
             }
         }
@@ -927,13 +1007,14 @@ struct SimonSaysGameView: View {
         message = "Preparing..."
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             isGettingReady = false
-            Task { await nextLevel() }
+            Task { await playSequence(isNewLevel: true) }
         }
     }
     
     func resetGame() {
         sequence = []
-        for _ in 1...4 {
+        // Start with a sequence length of 2 for level 1
+        for _ in 1...2 {
             var newButton: Int
             repeat {
                 newButton = Int.random(in: 0...3)
@@ -943,10 +1024,10 @@ struct SimonSaysGameView: View {
             sequence.append(newButton)
         }
         currentInput = []
-        currentLevel = 4  // Change this value to 6, 7, etc. if desired.
+        currentLevel = 1
         errorCount = 0
         message = ""
-        remainingTime = 180
+        remainingTime = simonTestDuration
         showingSequence = false
         currentFlashingButton = nil
         isGettingReady = false
@@ -954,24 +1035,29 @@ struct SimonSaysGameView: View {
     }
     
     func nextLevel() async {
-        currentLevel += 1
+        currentLevel += 1  // Increase level number (e.g., 2, 3, 4...)
         currentInput = []
-        var newButton: Int
-        repeat {
-            newButton = Int.random(in: 0...3)
-        } while (sequence.count >= 2 &&
-                 sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
-                 newButton == sequence.last)
-        sequence.append(newButton)
-        await playSequence()
+        // Append 2 new buttons to the sequence for each new level
+        for _ in 1...2 {
+            var newButton: Int
+            repeat {
+                newButton = Int.random(in: 0...3)
+            } while (sequence.count >= 2 &&
+                     sequence[sequence.count - 1] == sequence[sequence.count - 2] &&
+                     newButton == sequence.last)
+            sequence.append(newButton)
+        }
+        await playSequence(isNewLevel: true)
     }
     
-    func playSequence() async {
+    func playSequence(isNewLevel: Bool) async {
         showingSequence = true
-        message = "Watch the sequence..."
+        isSequencePlaying = true
+        message = isNewLevel ? "New level – watch closely!" : "Wrong! Replaying sequence..."
         let flashDuration: UInt64 = 200_000_000
         let pauseDuration: UInt64 = 300_000_000
         for button in sequence {
+            if skipSequence { break }
             withAnimation(.easeInOut(duration: 0.2)) {
                 currentFlashingButton = button
             }
@@ -981,6 +1067,9 @@ struct SimonSaysGameView: View {
             }
             try? await Task.sleep(nanoseconds: pauseDuration)
         }
+        isSequencePlaying = false
+        isReplayingDueToError = false
+        skipSequence = false
         showingSequence = false
         message = "Repeat the sequence!"
         inputDisabled = false
@@ -993,10 +1082,11 @@ struct SimonSaysGameView: View {
         if currentInput[currentIndex] != sequence[currentIndex] {
             errorCount += 1
             message = "Wrong! Try again at level \(currentLevel)"
+            isReplayingDueToError = true
             currentInput = []
             inputDisabled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                Task { await playSequence() }
+                Task { await playSequence(isNewLevel: false) }
             }
             return
         }
@@ -1011,57 +1101,29 @@ struct SimonSaysGameView: View {
     
     func endGame() {
         gameState = .gameOver
-        message = "Time's up! You reached level \(currentLevel) with \(errorCount) error(s)."
     }
 }
 
-struct SimonGameView: View {
-    var currentLevel: Int
-    var errorCount: Int
-    var remainingTime: Int
-    var message: String
-    var showingSequence: Bool
-    var currentFlashingButton: Int?
-    var handleUserTap: (Int) -> Void
-    var onQuit: () -> Void
-    var isPreparing: Bool
-    
-    var body: some View {
-        VStack(spacing: 30) {
-            HStack {
-                Text("Time: \(remainingTime)s")
-                Spacer()
-                Text("Errors: \(errorCount)")
-            }
-            .padding(.horizontal)
-            
-            Text(isPreparing ? "Get ready..." : "Level \(currentLevel)")
-                .font(.system(size: 48, weight: .bold))
-                .foregroundColor(isPreparing ? .gray : .primary)
-                .padding(.vertical)
-            
-            HStack {
-                Text(message)
-                    .foregroundColor(.red)
-                Spacer()
-                Button(action: onQuit) {
-                    Text("Quit")
-                        .padding(10)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(10)
-                }
-                .contentShape(Rectangle())
-            }
-            .padding(.horizontal)
-            GridView(currentFlashingButton: currentFlashingButton, handleUserTap: handleUserTap)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-}
+
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
